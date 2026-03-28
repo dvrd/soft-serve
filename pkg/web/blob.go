@@ -117,10 +117,22 @@ func getRawBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	// If the client explicitly requests a binary stream, serve as download.
+	// NOTE: sanitizeMIME has already run above. Any content-type set in this
+	// block must itself be safe to serve without further sanitisation.
 	if r.Header.Get("Accept") == "application/octet-stream" {
 		contentType = "application/octet-stream"
-		// Quote the filename per RFC 6266 §4.3 and escape embedded quotes.
-		safeName := strings.ReplaceAll(filepath.Base(filePath), `"`, `\"`)
+		// Build a safe filename for Content-Disposition per RFC 6266 §4.3:
+		//  - strip ASCII control characters (0x00-0x1F, 0x7F) to prevent
+		//    response-header injection via crafted filenames
+		//  - escape embedded double-quotes
+		rawName := filepath.Base(filePath)
+		safeName := strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7F {
+				return -1 // drop control character
+			}
+			return r
+		}, rawName)
+		safeName = strings.ReplaceAll(safeName, `"`, `\"`)
 		w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`"`)
 	}
 
