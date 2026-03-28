@@ -145,7 +145,7 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 	if scmd.Stdin != nil {
 		go func() {
 			defer stdin.Close() //nolint: errcheck
-			if _, err := io.Copy(stdin, scmd.Stdin); err != nil {
+			if _, err := io.Copy(stdin, scmd.Stdin); err != nil && ctx.Err() == nil {
 				log.Errorf("gitServiceHandler: failed to copy stdin: %v", err)
 			}
 		}()
@@ -156,7 +156,7 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := io.Copy(scmd.Stdout, stdout); err != nil {
+			if _, err := io.Copy(scmd.Stdout, stdout); err != nil && ctx.Err() == nil {
 				log.Errorf("gitServiceHandler: failed to copy stdout: %v", err)
 			}
 		}()
@@ -167,7 +167,7 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, erro := io.Copy(scmd.Stderr, stderr); erro != nil {
+			if _, erro := io.Copy(scmd.Stderr, stderr); erro != nil && ctx.Err() == nil {
 				log.Errorf("gitServiceHandler: failed to copy stderr: %v", erro)
 			}
 		}()
