@@ -68,9 +68,11 @@ type Link struct {
 	Href      string            `json:"href"`
 	Header    map[string]string `json:"header,omitempty"`
 	ExpiresAt *time.Time        `json:"expires_at,omitempty"`
-	// ExpiresIn is the number of seconds until the link expires, per the
-	// git-lfs batch API spec. Using int64 (not time.Duration) avoids
-	// serialising nanoseconds, which overflows int32 on 32-bit platforms.
+	// ExpiresIn is the number of seconds (not nanoseconds, not milliseconds)
+	// until the link expires, per the git-lfs batch API spec. Callers MUST
+	// pass whole seconds (e.g. int64(d / time.Second)). Using int64 instead
+	// of time.Duration avoids serialising nanoseconds, which overflows int32
+	// on 32-bit platforms.
 	ExpiresIn *int64 `json:"expires_in,omitempty"`
 }
 
