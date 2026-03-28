@@ -60,6 +60,9 @@ type ServiceHandler func(ctx context.Context, cmd ServiceCommand) error
 // gitServiceHandler is the default service handler using the git binary.
 func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) error {
 	cmd := exec.CommandContext(ctx, "git")
+	// WaitDelay bounds how long we wait for stdin/stdout pipe goroutines to
+	// finish after the git process has already been killed (e.g. by context
+	// cancellation). It does NOT impose a timeout on running git operations.
 	cmd.WaitDelay = 30 * time.Second
 	cmd.Dir = scmd.Dir
 	cmd.Args = append(cmd.Args, []string{
