@@ -58,7 +58,22 @@ func (s Service) Handler(ctx context.Context, cmd ServiceCommand) error {
 type ServiceHandler func(ctx context.Context, cmd ServiceCommand) error
 
 // gitServiceHandler is the default service handler using the git binary.
+//
+// Deadline invariant: the ctx passed here must be cancellation-only — it must
+// NOT carry a context.WithDeadline or context.WithTimeout. All three transport
+// callers (SSH via gliderlabs/ssh, git daemon via pkg/daemon, HTTP via
+// net/http) enforce timeouts by calling conn.SetDeadline on the underlying
+// net.Conn, NOT by attaching a deadline to the context. If a caller were ever
+// changed to pass a deadline-carrying context, exec.CommandContext would kill
+// the git subprocess when the deadline expires, potentially corrupting an
+// in-progress push. In that case, replace ctx with a context.WithCancelCause
+// derived from context.Background() that mirrors parent cancellation but not
+// DeadlineExceeded.
 func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) error {
+	// NOTE: ctx is cancellation-only (derived from context.Background via
+	// context.WithCancel). SSH and git-daemon timeouts fire as net.Conn
+	// deadline errors, not context deadlines — so no deadline can reach here
+	// and kill a long-running push or clone mid-transfer.
 	cmd := exec.CommandContext(ctx, "git")
 	// WaitDelay bounds how long we wait for stdin/stdout pipe goroutines to
 	// finish after the git process has already been killed (e.g. by context
