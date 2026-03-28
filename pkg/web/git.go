@@ -260,6 +260,11 @@ func withAccess(next http.Handler) http.HandlerFunc {
 		// - git-upload-pack
 		// - git-receive-pack
 		// - git-lfs
+		//
+		// Routes that carry no service var and no info/lfs prefix (e.g. the raw
+		// blob endpoint, go-get) intentionally fall through this switch with no
+		// case matched. They are then subject to the catch-all access check below
+		// (lines ~359-371) which enforces ReadOnlyAccess via renderNotFound.
 		switch {
 		case service == git.ReceivePackService:
 			if accessLevel < access.ReadWriteAccess {

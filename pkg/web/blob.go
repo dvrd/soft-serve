@@ -76,6 +76,9 @@ func getRawBlob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Guard against OOM/DoS from very large blobs.
+	// te.Size() calls `git cat-file -s` and silently returns 0 on error,
+	// so this is a fast early-out only; the post-load check below is the
+	// authoritative guard.
 	if te.Size() > maxRawBlobSize {
 		renderStatus(http.StatusRequestEntityTooLarge)(w, r)
 		return
@@ -84,6 +87,13 @@ func getRawBlob(w http.ResponseWriter, r *http.Request) {
 	bts, err := te.Contents()
 	if err != nil {
 		renderInternalServerError(w, r)
+		return
+	}
+
+	// Belt-and-suspenders: re-check after loading in case te.Size() returned
+	// 0 due to a silent git subprocess error.
+	if int64(len(bts)) > maxRawBlobSize {
+		renderStatus(http.StatusRequestEntityTooLarge)(w, r)
 		return
 	}
 
@@ -119,13 +129,23 @@ func getRawBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(bts)))
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(bts)), 10))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(bts)
 }
 
-// sanitizeMIME downgrades MIME types that a browser will execute scripts from
-// to text/plain, preventing stored-XSS attacks via pushed files.
+// sanitizeMIME uses an allowlist to ensure only MIME types that cannot execute
+// scripts in a browser are forwarded. Everything else is downgraded to
+// text/plain to prevent stored-XSS from pushed .html/.svg/.js/.css/etc. files.
+//
+// Allowlisted categories:
+//   - text/plain, application/octet-stream (safe by definition)
+//   - application/json (data only, not rendered/executed by browsers)
+//   - image/* except SVG (SVG allows embedded scripts)
+//   - audio/*, video/* (media; cannot execute scripts)
+//
+// All other types — including text/html, text/css, *+xml, */javascript,
+// application/pdf, font/*, multipart/* — are downgraded.
 func sanitizeMIME(ct string) string {
 	// Strip parameters for comparison (e.g. "text/html; charset=utf-8" → "text/html").
 	base := ct
@@ -135,14 +155,18 @@ func sanitizeMIME(ct string) string {
 	base = strings.ToLower(base)
 
 	switch {
-	case base == "text/html",
-		base == "text/xhtml",
-		base == "application/xhtml+xml",
-		strings.HasSuffix(base, "/javascript"),
-		strings.HasSuffix(base, "+xml"), // SVG, MathML, XHTML variants
-		base == "application/xml",
-		base == "text/xml":
-		return "text/plain; charset=utf-8"
+	case base == "text/plain",
+		base == "application/octet-stream",
+		base == "application/json":
+		return ct
+	case strings.HasPrefix(base, "image/") && base != "image/svg+xml":
+		// SVG is excluded: it supports embedded <script> elements.
+		return ct
+	case strings.HasPrefix(base, "audio/"),
+		strings.HasPrefix(base, "video/"):
+		return ct
 	}
-	return ct
+
+	// Downgrade everything else (HTML, CSS, JavaScript, SVG, XML, PDF, fonts, …).
+	return "text/plain; charset=utf-8"
 }
