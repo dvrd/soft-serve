@@ -39,6 +39,10 @@ var (
 	}, []string{"allowed"})
 )
 
+// tokenUserExtKey is the permissions extension key used to pass the
+// authenticated user ID from KeyboardInteractiveHandler to AuthenticationMiddleware.
+const tokenUserExtKey = "token-user-id"
+
 // SSHServer is a SSH server that implements the git protocol.
 type SSHServer struct { //nolint: revive
 	srv    *ssh.Server
@@ -157,6 +161,7 @@ func initializePermissions(ctx ssh.Context) {
 	if perms.Extensions == nil {
 		perms.Extensions = make(map[string]string)
 	}
+	ctx.SetValue(ssh.ContextKeyPermissions, perms)
 }
 
 // PublicKeyHandler handles public key authentication.
@@ -174,26 +179,43 @@ func (s *SSHServer) PublicKeyHandler(ctx ssh.Context, pk ssh.PublicKey) (allowed
 
 	// Set the public key fingerprint to be used for authentication.
 	perms.Extensions["pubkey-fp"] = gossh.FingerprintSHA256(pk)
-	ctx.SetValue(ssh.ContextKeyPermissions, perms)
 
 	return
 }
 
 // KeyboardInteractiveHandler handles keyboard interactive authentication.
-// This is used after all public key authentication has failed.
-func (s *SSHServer) KeyboardInteractiveHandler(ctx ssh.Context, _ gossh.KeyboardInteractiveChallenge) bool {
-	ac := s.be.AllowKeyless(ctx)
-	keyboardInteractiveCounter.WithLabelValues(strconv.FormatBool(ac)).Inc()
-
-	// If we're allowing keyless access, reset the public key fingerprint
+// It prompts for an access token and validates it. If no valid token is
+// provided, it falls back to AllowKeyless behavior.
+func (s *SSHServer) KeyboardInteractiveHandler(ctx ssh.Context, challenge gossh.KeyboardInteractiveChallenge) bool {
 	initializePermissions(ctx)
 	perms := ctx.Permissions()
 
+	// Prompt the user for an access token.
+	answers, err := challenge("", "", []string{"Access Token: "}, []bool{false})
+	if err == nil && len(answers) > 0 && answers[0] != "" {
+		token := answers[0]
+		user, tokenErr := s.be.UserByAccessToken(ctx, token)
+		if tokenErr == nil && user != nil {
+			// Valid token: store user ID and allow access.
+			perms.Extensions["pubkey-fp"] = ""
+			perms.Extensions[tokenUserExtKey] = strconv.FormatInt(user.ID(), 10)
+			keyboardInteractiveCounter.WithLabelValues("true").Inc()
+			s.logger.Info("keyboard-interactive token auth succeeded", "username", user.Username())
+			return true
+		}
+		if tokenErr != nil {
+			s.logger.Warn("keyboard-interactive token auth failed", "err", tokenErr)
+		} else {
+			s.logger.Warn("keyboard-interactive token auth failed", "err", "user not found")
+		}
+	}
+
+	// No valid token: fall back to AllowKeyless behavior.
+	ac := s.be.AllowKeyless(ctx)
+	keyboardInteractiveCounter.WithLabelValues(strconv.FormatBool(ac)).Inc()
+
 	if ac {
-		// XXX: reset the public-key fingerprint. This is used to validate the
-		// public key being used to authenticate.
 		perms.Extensions["pubkey-fp"] = ""
-		ctx.SetValue(ssh.ContextKeyPermissions, perms)
 	}
 	return ac
 }
