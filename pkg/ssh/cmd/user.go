@@ -55,16 +55,6 @@ SSH protocol splits it on spaces.`,
 				parts := args[1:]
 				if localKey != "" {
 					parts = append([]string{localKey}, parts...)
-				} else {
-					// No -k flag: args[1:] should be the key. Probe the full
-					// reconstructed value with ParseAuthorizedKey to distinguish a
-					// valid key from an accidental extra username
-					// (e.g. "soft user create alice bob" where "bob" is not a key).
-					// Using the parser directly avoids a hardcoded key-type allowlist
-					// that would need updating as new SSH key types are introduced.
-					if _, _, err := sshutils.ParseAuthorizedKey(strings.Join(args[1:], " ")); err != nil {
-						return fmt.Errorf("unexpected argument %q: expected a public key", strings.Join(args[1:], " "))
-					}
 				}
 				localKey = strings.Join(parts, " ")
 			}
