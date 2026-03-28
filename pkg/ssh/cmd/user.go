@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -22,22 +23,39 @@ func UserCommand() *cobra.Command {
 	var admin bool
 	var key string
 	userCreateCommand := &cobra.Command{
-		Use:               "create USERNAME",
-		Short:             "Create a new user",
-		Args:              cobra.ExactArgs(1),
+		Use:   "create USERNAME",
+		Short: "Create a new user",
+		// Accept extra positional args so that a public key can be passed
+		// without shell quoting when using -k. OpenSSH strips shell quoting
+		// before sending commands over the wire, so:
+		//   ssh host user create alice -k 'ssh-ed25519 AAAA...'
+		// arrives as separate tokens: [-k, ssh-ed25519, AAAA...].
+		// We re-join -k's value with any remaining positional args to
+		// reconstruct the full authorized-key string, matching the
+		// behaviour of the add-pubkey command.
+		Args:              cobra.MinimumNArgs(1),
 		PersistentPreRunE: checkIfAdmin,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var pubkeys []ssh.PublicKey
 			ctx := cmd.Context()
 			be := backend.FromContext(ctx)
 			username := args[0]
-			if key != "" {
-				pk, _, err := sshutils.ParseAuthorizedKey(key)
+
+			// Reconstruct the full key from the -k flag value plus any
+			// trailing positional args. Extra positional args without -k
+			// are rejected.
+			if cmd.Flags().Changed("key") {
+				// OpenSSH strips shell quoting before sending commands over
+				// the wire, so 'ssh-ed25519 AAAA...' arrives as separate
+				// tokens. Re-join -k's captured value with remaining args.
+				keyStr := strings.TrimSpace(strings.Join(append([]string{key}, args[1:]...), " "))
+				pk, _, err := sshutils.ParseAuthorizedKey(keyStr)
 				if err != nil {
 					return err
 				}
-
 				pubkeys = []ssh.PublicKey{pk}
+			} else if len(args) > 1 {
+				return fmt.Errorf("unexpected arguments: %v", args[1:])
 			}
 
 			opts := proto.UserOptions{
