@@ -159,19 +159,38 @@ func (s *Server) Start() error {
 		},
 	}
 
-	errg, _ := errgroup.WithContext(s.ctx)
-
+	// Bind all listeners before launching any goroutines.
+	// If a bind fails, close the ones we already opened so their ports are
+	// released immediately (important for rapid restart scenarios).
+	var listeners []net.Listener
 	for _, srv := range srvs {
 		if !srv.enabled {
 			continue
 		}
 		l, err := net.Listen("tcp", srv.addr)
 		if err != nil {
+			for _, open := range listeners {
+				open.Close() //nolint:errcheck
+			}
 			return fmt.Errorf("%s: %w", srv.label, err)
 		}
-		srv := srv // capture for goroutine
+		listeners = append(listeners, l)
+	}
+
+	errg, _ := errgroup.WithContext(s.ctx)
+
+	li := 0
+	for _, srv := range srvs {
+		if !srv.enabled {
+			continue
+		}
+		l := listeners[li]
+		li++
+		srv := srv // for Go versions < 1.22
 		errg.Go(func() error {
-			s.logger.Print("Starting "+srv.label, "addr", srv.addr)
+			// Log the real bound address, which differs from srv.addr when
+			// the port was 0 (OS-assigned) — common in tests.
+			s.logger.Print("Starting "+srv.label, "addr", l.Addr().String())
 			if err := srv.serve(l); !errors.Is(err, srv.closed) {
 				return err
 			}

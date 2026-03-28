@@ -58,8 +58,13 @@ func (s *HTTPServer) ListenAndServe() error {
 }
 
 // Serve accepts connections on l. If TLS is configured, incoming connections
-// are wrapped with TLS using the server's TLSConfig (certFile and keyFile are
-// not needed when GetCertificate is set).
+// are wrapped with TLS using the server's TLSConfig.
+//
+// When TLS is active, ServeTLS is called with empty cert/key file paths.
+// This is safe only when TLSConfig.GetCertificate is set (which is always
+// the case when soft-serve wires up CertReloader). Do not call Serve with
+// TLSConfig set unless GetCertificate or Certificates is populated —
+// ServeTLS will fail with an opaque TLS error if neither is present.
 func (s *HTTPServer) Serve(l net.Listener) error {
 	if s.Server.TLSConfig != nil {
 		return s.Server.ServeTLS(l, "", "")
