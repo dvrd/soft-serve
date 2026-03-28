@@ -23,16 +23,16 @@ func UserCommand() *cobra.Command {
 	var admin bool
 	var key string
 	userCreateCommand := &cobra.Command{
-		Use:   "create USERNAME",
+		Use:   "create USERNAME [-k KEY_TYPE KEY_BODY [COMMENT...]]",
 		Short: "Create a new user",
-		// Accept extra positional args so that a public key can be passed
-		// without shell quoting when using -k. OpenSSH strips shell quoting
-		// before sending commands over the wire, so:
+		// MinimumNArgs(1) lets trailing positional args through so that a
+		// public key passed with -k can be specified without shell quoting.
+		// OpenSSH strips quoting before transmitting, so:
 		//   ssh host user create alice -k 'ssh-ed25519 AAAA...'
 		// arrives as separate tokens: [-k, ssh-ed25519, AAAA...].
-		// We re-join -k's value with any remaining positional args to
-		// reconstruct the full authorized-key string, matching the
-		// behaviour of the add-pubkey command.
+		// When -k is provided, RunE joins the flag value with the remaining
+		// positional args to reconstruct the full authorized-key string,
+		// matching the behaviour of the add-pubkey command.
 		Args:              cobra.MinimumNArgs(1),
 		PersistentPreRunE: checkIfAdmin,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,21 +41,22 @@ func UserCommand() *cobra.Command {
 			be := backend.FromContext(ctx)
 			username := args[0]
 
-			// Reconstruct the full key from the -k flag value plus any
-			// trailing positional args. Extra positional args without -k
-			// are rejected.
-			if cmd.Flags().Changed("key") {
-				// OpenSSH strips shell quoting before sending commands over
-				// the wire, so 'ssh-ed25519 AAAA...' arrives as separate
-				// tokens. Re-join -k's captured value with remaining args.
+			switch {
+			case cmd.Flags().Changed("key") && key == "":
+				// -k was supplied with an empty value.
+				return fmt.Errorf("flag --key requires a non-empty public key")
+			case cmd.Flags().Changed("key"):
+				// Re-join the -k value with any remaining positional args.
+				// This reconstructs a key split across tokens by SSH quoting
+				// stripping (e.g. 'ssh-ed25519 AAAA' → two tokens).
 				keyStr := strings.TrimSpace(strings.Join(append([]string{key}, args[1:]...), " "))
 				pk, _, err := sshutils.ParseAuthorizedKey(keyStr)
 				if err != nil {
 					return err
 				}
 				pubkeys = []ssh.PublicKey{pk}
-			} else if len(args) > 1 {
-				return fmt.Errorf("unexpected arguments: %v", args[1:])
+			case len(args) > 1:
+				return fmt.Errorf("unexpected arguments: %s", strings.Join(args[1:], " "))
 			}
 
 			opts := proto.UserOptions{
