@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"time"
 
@@ -54,6 +55,16 @@ func (s *HTTPServer) ListenAndServe() error {
 		return s.Server.ListenAndServeTLS("", "")
 	}
 	return s.Server.ListenAndServe()
+}
+
+// Serve accepts connections on l. If TLS is configured, incoming connections
+// are wrapped with TLS using the server's TLSConfig (certFile and keyFile are
+// not needed when GetCertificate is set).
+func (s *HTTPServer) Serve(l net.Listener) error {
+	if s.Server.TLSConfig != nil {
+		return s.Server.ServeTLS(l, "", "")
+	}
+	return s.Server.Serve(l)
 }
 
 // Shutdown gracefully shuts down the HTTP server.

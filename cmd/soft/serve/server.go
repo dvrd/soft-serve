@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 
 	"charm.land/log/v2"
@@ -113,46 +114,65 @@ func (s *Server) ReloadCertificates() error {
 
 // Start starts the SSH server.
 func (s *Server) Start() error {
+	// Pre-bind all listeners synchronously before starting any goroutines.
+	// This ensures that a bind failure (e.g. EACCES on a privileged port) is
+	// returned immediately to the caller rather than being lost inside a
+	// goroutine that the errgroup can never cancel.
+	type serveFunc func(net.Listener) error
+
+	type server struct {
+		addr    string
+		label   string
+		serve   serveFunc
+		closed  error // sentinel that means "server shut down cleanly"
+		enabled bool
+	}
+
+	srvs := []server{
+		{
+			addr:    s.Config.SSH.ListenAddr,
+			label:   "SSH server",
+			serve:   s.SSHServer.Serve,
+			closed:  ssh.ErrServerClosed,
+			enabled: s.Config.SSH.Enabled,
+		},
+		{
+			addr:    s.Config.Git.ListenAddr,
+			label:   "Git daemon",
+			serve:   s.GitDaemon.Serve,
+			closed:  daemon.ErrServerClosed,
+			enabled: s.Config.Git.Enabled,
+		},
+		{
+			addr:    s.Config.HTTP.ListenAddr,
+			label:   "HTTP server",
+			serve:   s.HTTPServer.Serve,
+			closed:  http.ErrServerClosed,
+			enabled: s.Config.HTTP.Enabled,
+		},
+		{
+			addr:    s.Config.Stats.ListenAddr,
+			label:   "Stats server",
+			serve:   s.StatsServer.Serve,
+			closed:  http.ErrServerClosed,
+			enabled: s.Config.Stats.Enabled,
+		},
+	}
+
 	errg, _ := errgroup.WithContext(s.ctx)
 
-	// optionally start the SSH server
-	if s.Config.SSH.Enabled {
+	for _, srv := range srvs {
+		if !srv.enabled {
+			continue
+		}
+		l, err := net.Listen("tcp", srv.addr)
+		if err != nil {
+			return fmt.Errorf("%s: %w", srv.label, err)
+		}
+		srv := srv // capture for goroutine
 		errg.Go(func() error {
-			s.logger.Print("Starting SSH server", "addr", s.Config.SSH.ListenAddr)
-			if err := s.SSHServer.ListenAndServe(); !errors.Is(err, ssh.ErrServerClosed) {
-				return err
-			}
-			return nil
-		})
-	}
-
-	// optionally start the git daemon
-	if s.Config.Git.Enabled {
-		errg.Go(func() error {
-			s.logger.Print("Starting Git daemon", "addr", s.Config.Git.ListenAddr)
-			if err := s.GitDaemon.ListenAndServe(); !errors.Is(err, daemon.ErrServerClosed) {
-				return err
-			}
-			return nil
-		})
-	}
-
-	// optionally start the HTTP server
-	if s.Config.HTTP.Enabled {
-		errg.Go(func() error {
-			s.logger.Print("Starting HTTP server", "addr", s.Config.HTTP.ListenAddr)
-			if err := s.HTTPServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-				return err
-			}
-			return nil
-		})
-	}
-
-	// optionally start the Stats server
-	if s.Config.Stats.Enabled {
-		errg.Go(func() error {
-			s.logger.Print("Starting Stats server", "addr", s.Config.Stats.ListenAddr)
-			if err := s.StatsServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			s.logger.Print("Starting "+srv.label, "addr", srv.addr)
+			if err := srv.serve(l); !errors.Is(err, srv.closed) {
 				return err
 			}
 			return nil
