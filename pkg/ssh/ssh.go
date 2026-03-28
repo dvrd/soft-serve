@@ -95,8 +95,10 @@ func NewSSHServer(ctx context.Context) (*SSHServer, error) {
 	// in-memory key on every restart — causing host-key-changed errors for
 	// clients on each restart.
 	if cfg.SSH.KeyPath != "" {
-		if err := os.MkdirAll(filepath.Dir(cfg.SSH.KeyPath), 0o700); err != nil {
-			return nil, fmt.Errorf("create host key directory: %w", err)
+		if dir := filepath.Dir(cfg.SSH.KeyPath); dir != "." {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return nil, fmt.Errorf("create host key directory: %w", err)
+			}
 		}
 	}
 
