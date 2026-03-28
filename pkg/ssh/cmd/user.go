@@ -23,8 +23,11 @@ func UserCommand() *cobra.Command {
 	var admin bool
 	var key string
 	userCreateCommand := &cobra.Command{
-		Use:               "create USERNAME",
-		Short:             "Create a new user",
+		Use:   "create USERNAME",
+		Short: "Create a new user",
+		Long: `Create a new user. The public key can be provided via the -k/--key flag.
+When connecting over SSH, the key is automatically reconstructed if the
+SSH protocol splits it on spaces.`,
 		Args:              cobra.MinimumNArgs(1),
 		PersistentPreRunE: checkIfAdmin,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -32,19 +35,50 @@ func UserCommand() *cobra.Command {
 			ctx := cmd.Context()
 			be := backend.FromContext(ctx)
 			username := args[0]
-			// When -k is passed over SSH, the key value may be split across
-			// the flag and trailing positional args (e.g. -k "ssh-ed25519 AAAA"
-			// becomes -k ssh-ed25519 AAAA as separate tokens). Merge any
-			// trailing args into the key to reassemble the full value.
-			if len(args) > 1 {
-				if key == "" {
-					return fmt.Errorf("accepts 1 arg(s), received %d", len(args))
-				}
-				key = strings.Join(append([]string{key}, args[1:]...), " ")
-				key = strings.TrimSpace(key)
+			// SSH exec tokenizes commands on spaces, so a public key like
+			// "ssh-ed25519 AAAA..." arrives as separate args. Reconstruct
+			// the full key by joining the flag value with any trailing args.
+			// Use a local variable to avoid mutating the closure-captured flag
+			// var, which would bleed state into subsequent invocations.
+			localKey := key
+			if cmd.Flags().Changed("key") && localKey == "" {
+				return fmt.Errorf("--key flag requires a non-empty public key value")
 			}
-			if key != "" {
-				pk, _, err := sshutils.ParseAuthorizedKey(key)
+			if len(args) > 1 {
+				// SSH exec tokenizes the command on spaces, splitting "ssh-ed25519 AAAA..."
+				// into separate args. Reconstruct only when localKey is a partial key type
+				// (no space = just "ssh-ed25519") or when no -k flag was given.
+				if strings.Contains(localKey, " ") {
+					// localKey is already a complete key; extra positional args are unexpected
+					return fmt.Errorf("unexpected arguments: %v", args[1:])
+				}
+				parts := args[1:]
+				if localKey != "" {
+					parts = append([]string{localKey}, parts...)
+				} else {
+					// No -k flag: args[1:] should be the key. Validate args[1] looks like
+					// a key type to distinguish from accidental extra usernames
+					// (e.g. "soft user create alice bob" where "bob" is not a key).
+					// We only validate args[1] (the key type token) and cannot reject
+					// further args because SSH key comments may contain spaces and arrive
+					// as additional positional arguments (e.g. "ssh-ed25519 AAAA user@host comment words").
+					// ParseAuthorizedKey will reject syntactically invalid keys with a clear error.
+					validKeyPrefixes := []string{"ssh-", "ecdsa-", "sk-"}
+					isKeyType := false
+					for _, p := range validKeyPrefixes {
+						if strings.HasPrefix(args[1], p) {
+							isKeyType = true
+							break
+						}
+					}
+					if !isKeyType {
+						return fmt.Errorf("unexpected argument %q: if providing a public key without -k flag, it must start with ssh-, ecdsa-, or sk-", args[1])
+					}
+				}
+				localKey = strings.Join(parts, " ")
+			}
+			if localKey != "" {
+				pk, _, err := sshutils.ParseAuthorizedKey(localKey)
 				if err != nil {
 					return err
 				}
