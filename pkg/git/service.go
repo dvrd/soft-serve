@@ -196,9 +196,14 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 				log.FromContext(ctx).Debug("git process exited on context cancellation", "service", svc.Name())
 				return nil
 			}
+			// When WaitDelay fires alongside a non-zero exit, cmd.Wait returns
+			// errors.Join(exitErr, exec.ErrWaitDelay). Strip the WaitDelay noise
+			// so callers see a clean exit-status error, not an internal timeout.
+			retErr := error(exitErr)
 			if len(exitErr.Stderr) > 0 {
-				return fmt.Errorf("%w: %s", err, exitErr.Stderr)
+				retErr = fmt.Errorf("%w: %s", exitErr, exitErr.Stderr)
 			}
+			return retErr
 		} else if errors.Is(err, exec.ErrWaitDelay) {
 			// WaitDelay (30s) expired before pipe goroutines drained. This branch
 			// is only reached when there is no accompanying ExitError (i.e. git
