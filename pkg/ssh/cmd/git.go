@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -293,11 +294,14 @@ func gitRunE(cmd *cobra.Command, args []string) error {
 		} else if err != nil {
 			// When the client disconnects early (e.g. Flux Source controller
 			// closes the connection after receiving ref advertisements), the
-			// context is cancelled and the git process is killed with SIGKILL.
-			// This produces a "signal: killed" error that is normal and
-			// expected — log it at debug level, not error.
-			if ctx.Err() != nil {
-				logger.Debug("git service ended on client disconnect", "service", service, "repo", name)
+			// SSH session context is cancelled and exec.CommandContext kills
+			// the git subprocess with SIGKILL, producing "signal: killed".
+			// That is normal — log it at debug level, not error.
+			// Use context.Canceled specifically: context.DeadlineExceeded
+			// means a server-side timeout fired, which is still worth an
+			// ERROR so operators can tune their timeout settings.
+			if ctx.Err() == context.Canceled {
+				logger.Debug("git service ended on client disconnect", "service", service, "err", err, "repo", name)
 			} else {
 				logger.Error("failed to handle git service", "service", service, "err", err, "repo", name)
 			}
