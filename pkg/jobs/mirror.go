@@ -69,6 +69,7 @@ func (m mirrorPull) Func(ctx context.Context) func() {
 						"remote update --prune", // update remote and prune remote refs
 					}
 
+					syncOK := true
 					for _, c := range cmds {
 						args := strings.Split(c, " ")
 						// Prepend -c gc.auto=0 to disable automatic garbage
@@ -91,8 +92,12 @@ func (m mirrorPull) Func(ctx context.Context) func() {
 
 						if _, err := cmd.RunInDir(r.Path); err != nil {
 							logger.Error("error running git remote update", "repo", name, "err", err)
+							syncOK = false
 							break
 						}
+					}
+					if !syncOK {
+						return
 					}
 
 					if cfg.LFS.Enabled {
