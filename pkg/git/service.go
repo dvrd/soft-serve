@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/log/v2"
 )
@@ -59,6 +60,7 @@ type ServiceHandler func(ctx context.Context, cmd ServiceCommand) error
 // gitServiceHandler is the default service handler using the git binary.
 func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) error {
 	cmd := exec.CommandContext(ctx, "git")
+	cmd.WaitDelay = 30 * time.Second
 	cmd.Dir = scmd.Dir
 	cmd.Args = append(cmd.Args, []string{
 		// Enable partial clones
