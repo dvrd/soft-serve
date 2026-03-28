@@ -470,13 +470,13 @@ func (f *flushResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 		nRead, readErr := r.Read(p)
 		if nRead > 0 {
 			nWrite, err := f.ResponseWriter.Write(p[:nRead])
+			n += int64(nWrite)
 			if err != nil {
 				return n, err
 			}
-			if nRead != nWrite {
+			if nWrite < nRead {
 				return n, io.ErrShortWrite
 			}
-			n += int64(nRead)
 			// ResponseWriter must support http.Flusher to handle buffered output.
 			if err := flusher.Flush(); err != nil {
 				return n, fmt.Errorf("%w: error while flush", err)
