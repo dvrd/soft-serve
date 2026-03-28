@@ -479,7 +479,7 @@ func (f *flushResponseWriter) ReadFrom(r io.Reader) (int64, error) {
 			}
 			// ResponseWriter must support http.Flusher to handle buffered output.
 			if err := flusher.Flush(); err != nil {
-				return n, fmt.Errorf("%w: error while flush", err)
+				return n, fmt.Errorf("error while flush: %w", err)
 			}
 		}
 		if readErr == io.EOF {
