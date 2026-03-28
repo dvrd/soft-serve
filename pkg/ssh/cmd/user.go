@@ -63,7 +63,7 @@ SSH protocol splits it on spaces.`,
 					// Using the parser directly avoids a hardcoded key-type allowlist
 					// that would need updating as new SSH key types are introduced.
 					if _, _, err := sshutils.ParseAuthorizedKey(strings.Join(args[1:], " ")); err != nil {
-						return fmt.Errorf("unexpected argument %q: expected a public key", args[1])
+						return fmt.Errorf("unexpected argument %q: expected a public key", strings.Join(args[1:], " "))
 					}
 				}
 				localKey = strings.Join(parts, " ")
