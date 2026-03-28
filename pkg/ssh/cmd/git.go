@@ -291,7 +291,16 @@ func gitRunE(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, git.ErrInvalidRepo) {
 			return git.ErrInvalidRepo
 		} else if err != nil {
-			logger.Error("failed to handle git service", "service", service, "err", err, "repo", name)
+			// When the client disconnects early (e.g. Flux Source controller
+			// closes the connection after receiving ref advertisements), the
+			// context is cancelled and the git process is killed with SIGKILL.
+			// This produces a "signal: killed" error that is normal and
+			// expected — log it at debug level, not error.
+			if ctx.Err() != nil {
+				logger.Debug("git service ended on client disconnect", "service", service, "repo", name)
+			} else {
+				logger.Error("failed to handle git service", "service", service, "err", err, "repo", name)
+			}
 			return git.ErrSystemMalfunction
 		}
 
