@@ -80,6 +80,6 @@ func LFSAuthenticate(ctx context.Context, cmd ServiceCommand) error {
 		},
 		Href:      href,
 		ExpiresAt: expiresAt,
-		ExpiresIn: expiresIn,
+		ExpiresIn: int64(expiresIn / time.Second),
 	})
 }
