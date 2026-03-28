@@ -67,7 +67,11 @@ func AuthenticationMiddleware(sh ssh.Handler) ssh.Handler {
 		// context key (tokenAuthUserIDKey) set during keyboard-interactive auth.
 		var user proto.User
 		if pk != nil {
-			user, _ = be.UserByPublicKey(ctx, pk)
+			if u, err := be.UserByPublicKey(ctx, pk); err != nil {
+				log.FromContext(ctx).Debug("public key lookup failed", "err", err)
+			} else {
+				user = u
+			}
 		} else if tokenID, ok := ctx.Value(tokenAuthUserIDKey{}).(int64); ok {
 			if u, err := be.UserByID(ctx, tokenID); err != nil {
 				log.FromContext(ctx).Warn("failed to resolve token-auth user", "id", tokenID, "err", err)

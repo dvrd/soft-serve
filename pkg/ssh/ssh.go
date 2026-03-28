@@ -181,6 +181,7 @@ func (s *SSHServer) PublicKeyHandler(ctx ssh.Context, pk ssh.PublicKey) (allowed
 
 	// Set the public key fingerprint to be used for authentication.
 	perms.Extensions["pubkey-fp"] = gossh.FingerprintSHA256(pk)
+	ctx.SetValue(ssh.ContextKeyPermissions, perms)
 
 	return
 }
@@ -204,7 +205,11 @@ func (s *SSHServer) KeyboardInteractiveHandler(ctx ssh.Context, challenge gossh.
 			// We intentionally do NOT use perms.Extensions here — certificate
 			// extensions from gossh are merged into the same map, so a string
 			// key can be injected by a client presenting a crafted certificate.
+			//
+			// Clear pubkey-fp so AuthenticationMiddleware's fingerprint guard
+			// does not reject this keyless token-auth session.
 			perms.Extensions["pubkey-fp"] = ""
+			ctx.SetValue(ssh.ContextKeyPermissions, perms)
 			ctx.SetValue(tokenAuthUserIDKey{}, user.ID())
 			keyboardInteractiveCounter.WithLabelValues("true").Inc()
 			s.logger.Info("keyboard-interactive token auth succeeded", "username", user.Username())
