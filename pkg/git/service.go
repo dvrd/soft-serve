@@ -199,10 +199,13 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 			if len(exitErr.Stderr) > 0 {
 				return fmt.Errorf("%w: %s", err, exitErr.Stderr)
 			}
-		} else if errors.Is(err, exec.ErrWaitDelay) && errors.Is(ctx.Err(), context.Canceled) {
-			// WaitDelay expired after context cancellation — the process was already
-			// killed; pipe goroutines did not drain within 30s. Not an error.
-			log.FromContext(ctx).Debug("git pipe drain timed out after cancellation", "service", svc.Name())
+		} else if errors.Is(err, exec.ErrWaitDelay) {
+			// WaitDelay (30s) expired before pipe goroutines drained. This branch
+			// is only reached when there is no accompanying ExitError (i.e. git
+			// exited 0 but the client read the pipe slowly). The git command
+			// succeeded; the drain timeout is an internal bookkeeping detail, not
+			// a caller-visible error.
+			log.FromContext(ctx).Debug("git pipe drain timed out", "service", svc.Name())
 			return nil
 		}
 
