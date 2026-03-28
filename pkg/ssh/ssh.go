@@ -39,9 +39,11 @@ var (
 	}, []string{"allowed"})
 )
 
-// tokenUserExtKey is the permissions extension key used to pass the
-// authenticated user ID from KeyboardInteractiveHandler to AuthenticationMiddleware.
-const tokenUserExtKey = "token-user-id"
+// tokenAuthUserIDKey is a package-private context key used to carry the
+// token-authenticated user ID from KeyboardInteractiveHandler to
+// AuthenticationMiddleware. Using a private type (not a string) prevents
+// injection via SSH certificate extensions, which use string-keyed maps.
+type tokenAuthUserIDKey struct{}
 
 // SSHServer is a SSH server that implements the git protocol.
 type SSHServer struct { //nolint: revive
@@ -192,13 +194,18 @@ func (s *SSHServer) KeyboardInteractiveHandler(ctx ssh.Context, challenge gossh.
 
 	// Prompt the user for an access token.
 	answers, err := challenge("", "", []string{"Access Token: "}, []bool{false})
-	if err == nil && len(answers) > 0 && answers[0] != "" {
+	if err != nil {
+		s.logger.Debug("keyboard-interactive challenge failed", "err", err)
+	} else if len(answers) > 0 && answers[0] != "" {
 		token := answers[0]
 		user, tokenErr := s.be.UserByAccessToken(ctx, token)
 		if tokenErr == nil && user != nil {
-			// Valid token: store user ID and allow access.
+			// Valid token: store the user ID via a package-private context key.
+			// We intentionally do NOT use perms.Extensions here — certificate
+			// extensions from gossh are merged into the same map, so a string
+			// key can be injected by a client presenting a crafted certificate.
 			perms.Extensions["pubkey-fp"] = ""
-			perms.Extensions[tokenUserExtKey] = strconv.FormatInt(user.ID(), 10)
+			ctx.SetValue(tokenAuthUserIDKey{}, user.ID())
 			keyboardInteractiveCounter.WithLabelValues("true").Inc()
 			s.logger.Info("keyboard-interactive token auth succeeded", "username", user.Username())
 			return true

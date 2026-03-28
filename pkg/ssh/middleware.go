@@ -63,14 +63,16 @@ func AuthenticationMiddleware(sh ssh.Handler) ssh.Handler {
 		}
 
 		// Set the auth'd user, or anon, in the context.
-		// Token-authenticated sessions (keyboard-interactive) carry the user
-		// ID in the tokenUserExtKey permission extension set during auth.
+		// Token-authenticated sessions carry the user ID via a package-private
+		// context key (tokenAuthUserIDKey) set during keyboard-interactive auth.
 		var user proto.User
 		if pk != nil {
 			user, _ = be.UserByPublicKey(ctx, pk)
-		} else if tokenIDStr := perms.Extensions[tokenUserExtKey]; tokenIDStr != "" {
-			if tokenID, err := strconv.ParseInt(tokenIDStr, 10, 64); err == nil {
-				user, _ = be.UserByID(ctx, tokenID)
+		} else if tokenID, ok := ctx.Value(tokenAuthUserIDKey{}).(int64); ok {
+			if u, err := be.UserByID(ctx, tokenID); err != nil {
+				log.FromContext(ctx).Warn("failed to resolve token-auth user", "id", tokenID, "err", err)
+			} else {
+				user = u
 			}
 		}
 		ctx.SetValue(proto.ContextKeyUser, user)
