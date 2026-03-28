@@ -146,7 +146,10 @@ func gitServiceHandler(ctx context.Context, svc Service, scmd ServiceCommand) er
 		go func() {
 			defer stdin.Close() //nolint: errcheck
 			if _, err := io.Copy(stdin, scmd.Stdin); err != nil && ctx.Err() == nil {
-				log.Errorf("gitServiceHandler: failed to copy stdin: %v", err)
+				// Broken-pipe here is normal: git read all it needed and exited,
+				// cmd.Wait() closed the write end of the pipe before the client
+				// finished sending. Log at Debug to avoid spurious error noise.
+				log.FromContext(ctx).Debug("gitServiceHandler: stdin copy ended", "err", err)
 			}
 		}()
 	}
