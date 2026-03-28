@@ -23,16 +23,21 @@ func UserCommand() *cobra.Command {
 	var admin bool
 	var key string
 	userCreateCommand := &cobra.Command{
-		Use:   "create USERNAME [-k KEY_TYPE KEY_BODY [COMMENT...]]",
+		Use:   "create USERNAME",
 		Short: "Create a new user",
-		// MinimumNArgs(1) lets trailing positional args through so that a
-		// public key passed with -k can be specified without shell quoting.
-		// OpenSSH strips quoting before transmitting, so:
-		//   ssh host user create alice -k 'ssh-ed25519 AAAA...'
-		// arrives as separate tokens: [-k, ssh-ed25519, AAAA...].
-		// When -k is provided, RunE joins the flag value with the remaining
-		// positional args to reconstruct the full authorized-key string,
-		// matching the behaviour of the add-pubkey command.
+		Long: `Create a new user.
+
+When passing a public key with -k, shell quoting is stripped by OpenSSH
+before the command is transmitted, so an ed25519 key such as:
+
+  ssh host user create alice -k 'ssh-ed25519 AAAA... user@host'
+
+arrives on the server as three separate tokens. Soft Serve re-joins them
+automatically, so both of the following forms work:
+
+  -k 'ssh-ed25519 AAAA... user@host'   (quoted, local shell)
+  -k ssh-ed25519 AAAA... user@host     (unquoted, same effect over SSH)
+`,
 		Args:              cobra.MinimumNArgs(1),
 		PersistentPreRunE: checkIfAdmin,
 		RunE: func(cmd *cobra.Command, args []string) error {

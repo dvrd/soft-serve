@@ -17,6 +17,11 @@ func reconstructKey(flagValue string, extraArgs []string) (string, error) {
 
 // TestUserCreateKeyReconstruction verifies the key-joining logic used when
 // OpenSSH strips shell quoting and delivers the key as separate tokens.
+//
+// Note: the empty-key guard (cmd.Flags().Changed("key") && key == "")
+// is exercised only via integration tests (testscript/testdata) because
+// invoking RunE requires passing the checkIfAdmin PersistentPreRunE,
+// which needs a full backend context.
 func TestUserCreateKeyReconstruction(t *testing.T) {
 	// Generate a real ed25519 key in authorized_keys format for tests.
 	const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBzKEBMH+cKg8+8v7CJrbPBpbmMHbzSENKgmHhYRhM89 test@host"
