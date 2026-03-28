@@ -56,23 +56,14 @@ SSH protocol splits it on spaces.`,
 				if localKey != "" {
 					parts = append([]string{localKey}, parts...)
 				} else {
-					// No -k flag: args[1:] should be the key. Validate args[1] looks like
-					// a key type to distinguish from accidental extra usernames
+					// No -k flag: args[1:] should be the key. Probe the full
+					// reconstructed value with ParseAuthorizedKey to distinguish a
+					// valid key from an accidental extra username
 					// (e.g. "soft user create alice bob" where "bob" is not a key).
-					// We only validate args[1] (the key type token) and cannot reject
-					// further args because SSH key comments may contain spaces and arrive
-					// as additional positional arguments (e.g. "ssh-ed25519 AAAA user@host comment words").
-					// ParseAuthorizedKey will reject syntactically invalid keys with a clear error.
-					validKeyPrefixes := []string{"ssh-", "ecdsa-", "sk-"}
-					isKeyType := false
-					for _, p := range validKeyPrefixes {
-						if strings.HasPrefix(args[1], p) {
-							isKeyType = true
-							break
-						}
-					}
-					if !isKeyType {
-						return fmt.Errorf("unexpected argument %q: if providing a public key without -k flag, it must start with ssh-, ecdsa-, or sk-", args[1])
+					// Using the parser directly avoids a hardcoded key-type allowlist
+					// that would need updating as new SSH key types are introduced.
+					if _, _, err := sshutils.ParseAuthorizedKey(strings.Join(args[1:], " ")); err != nil {
+						return fmt.Errorf("unexpected argument %q: expected a public key", args[1])
 					}
 				}
 				localKey = strings.Join(parts, " ")
